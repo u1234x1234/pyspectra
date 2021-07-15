@@ -1,3 +1,3 @@
-from spectra_ext import eigs
+# from spectra_ext import eigs, eigs2
 
-__all__ = ["eigs"]
+# __all__ = ["eigs"]
