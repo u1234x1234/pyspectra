@@ -6,6 +6,8 @@ import spectra_ext
 
 cupy = None
 torch = None
+tensorflow = None
+jax = None
 
 
 class MatProdBackend(ABC):
@@ -50,6 +52,23 @@ class TorchBackend(MatProdBackend):
         y[:] = yt.cpu().numpy()
 
 
+class TensorflowBackend(MatProdBackend):
+    def __init__(self, mat):
+        self._mat = tensorflow.constant(mat)
+
+    def matrix_vector_product(self, x, y):
+        r = tensorflow.linalg.matvec(self._mat, x)
+        y[:] = r.numpy()
+
+
+class JaxBackend(MatProdBackend):
+    def __init__(self, mat):
+        self._mat = jax.device_put(mat)
+
+    def matrix_vector_product(self, x, y):
+        y[:] = jax.numpy.dot(self._mat, x)
+
+
 def check_dtype(x):
     if x.dtype == np.float32:
         suffix = "float32"
@@ -87,6 +106,12 @@ def eigsh(x, n_top, maxiter=1000, backend="eigen"):
     elif backend == "pytorch":
         _load_module("torch")
         args = (TorchBackend,)
+    elif backend in ("tf", "tensorflow"):
+        _load_module("tensorflow")
+        args = (TensorflowBackend,)
+    elif backend == "jax":
+        _load_module("jax")
+        args = (JaxBackend,)
     elif isinstance(backend, MatProdBackend):
         args = (backend,)
     else:
