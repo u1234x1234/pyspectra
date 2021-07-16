@@ -1,8 +1,3 @@
-/*
-<%
-setup_pybind11(cfg)
-%>
-*/
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -18,12 +13,20 @@ using namespace Spectra;
 
 namespace py = pybind11;
 
-using np_array_f32 = pybind11::array_t<float, pybind11::array::c_style | pybind11::array::forcecast>;
-using np_array_f64 = pybind11::array_t<double, pybind11::array::c_style | pybind11::array::forcecast>;
+template <typename T>
+using ndarray = pybind11::array_t<T, pybind11::array::c_style | pybind11::array::forcecast>;
 
+using ndarray_fp32 = pybind11::array_t<float, pybind11::array::c_style | pybind11::array::forcecast>;
+using ndarray_fp64 = pybind11::array_t<double, pybind11::array::c_style | pybind11::array::forcecast>;
+
+
+template <typename T>
+using EigenMatrix = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>;
+template <typename T>
+using EigenVector = Eigen::Matrix<T, Eigen::Dynamic, 1>;
 
 template <typename Scalar_, int Uplo = Eigen::Lower, int Flags = Eigen::ColMajor>
-class MyDenseSymMatProd
+class PythonSymMatProd
 {
 public:
     using Scalar = Scalar_;
@@ -34,54 +37,33 @@ private:
     using Vector = Eigen::Matrix<Scalar, Eigen::Dynamic, 1>;
     using MapConstVec = Eigen::Map<const Vector>;
     using MapVec = Eigen::Map<Vector>;
-    // using ConstGenericMatrix = const Eigen::Ref<const Matrix>;
 
-    // ConstGenericMatrix m_mat;
     py::buffer_info info;
-    double *matData;
     py::object func;
-    np_array_f64 array;
+    py::object backend;
 
 public:
-    MyDenseSymMatProd(np_array_f64 array, py::object func)
+    PythonSymMatProd(ndarray<Scalar_> array, py::object backend)
     {
-        this->array = array;
+        this->backend = backend(array);
         info = array.request();
-        matData = static_cast<double*>(info.ptr);
-        // auto r = array.template mutable_unchecked<2>();
-        // decltype(r)::foo= 1;
         this->func = func;
     }
 
     Index rows() const { return info.shape[0]; }
     Index cols() const { return info.shape[1]; }
 
-    void perform_op(const Scalar* x_in, Scalar* y_out) const
+    void perform_op(const Scalar *x_in, Scalar *y_out) const
     {
         MapConstVec x(x_in, info.shape[1]);
         MapVec y(y_out, info.shape[0]);
-        // y.noalias() = m_mat.template selfadjointView<Uplo>() * x;
-        // std::cout << 23 << " " << x_in[0] << " " x_in[2] << std::endl;
-        // auto x_np = py::array_t<double>({200, 200}, info.strides, x_in);
-
-        auto r = func(array, x, y);
-    }
-
-    Matrix operator*(const Eigen::Ref<const Matrix>& mat_in) const
-    {
-        std::cout << 12 << std::endl;
-        // return m_mat.template selfadjointView<Uplo>() * mat_in;
-    }
-
-    Scalar operator()(Index i, Index j) const
-    {
-        return matData[i*200+j];
+        this->backend.attr("matrix_vector_product")(x, y);
     }
 };
 
-
 template <typename num_t, typename Matrix>
-Matrix ndarrayToMatrixX(pybind11::array_t<num_t, pybind11::array::c_style | pybind11::array::forcecast> b) {
+Matrix ndarrayToMatrixX(pybind11::array_t<num_t, pybind11::array::c_style | pybind11::array::forcecast> b)
+{
     typedef Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic> Strides;
     constexpr bool rowMajor = Matrix::Flags & Eigen::RowMajorBit;
 
@@ -102,49 +84,50 @@ Matrix ndarrayToMatrixX(pybind11::array_t<num_t, pybind11::array::c_style | pybi
     return Matrix(map);
 }
 
-// Eigen::VectorXd eigs(Eigen::Ref<Eigen::MatrixXd> v)
-// {
-//    DenseSymMatProd<double> op(v);
-//     SymEigsSolver<DenseSymMatProd<double>> eigs(op, 64, 64*2);
-
-//     eigs.init();
-//     int nconv = eigs.compute(SortRule::LargestAlge);
-
-//     Eigen::VectorXd evalues;
-//     if(eigs.info() == CompInfo::Successful)
-//         evalues = eigs.eigenvalues();
-
-//     return evalues;
-// }
-
-Eigen::VectorXd eigs2(np_array_f64 v, py::object func)
+template <typename Scalar, typename MatProd, typename Vector = EigenVector<Scalar>, typename Matrix = EigenMatrix<Scalar>>
+std::pair<Vector, Matrix> eigs_eigen_sym(Eigen::Ref<const Matrix> v, size_t nev, size_t ncv)
 {
-    // Eigen::MatrixXd v = ndarrayToMatrixX<double, Eigen::MatrixXd>(v0);
+    MatProd op(v);
+    SymEigsSolver<MatProd> eigs(op, nev, ncv);
+    eigs.init();
+    int nconv = eigs.compute(SortRule::LargestAlge);
 
-    MyDenseSymMatProd<double> op(v, func);
-    SymEigsSolver<MyDenseSymMatProd<double>> eigs(op, 3, 3*2);
+    Vector evalues;
+    Matrix evectors;
+    if (eigs.info() == CompInfo::Successful)
+        evalues = eigs.eigenvalues();
+    evectors = eigs.eigenvectors();
+
+    return std::make_pair(evalues, evectors);
+}
+
+template <typename Scalar, typename Vector = EigenVector<Scalar>, typename Matrix = EigenMatrix<Scalar>>
+std::pair<Vector, Matrix> eigs_python_backend(ndarray<Scalar> v, size_t nev, size_t ncv, py::object func)
+{
+    PythonSymMatProd<Scalar> op(v, func);
+    SymEigsSolver<PythonSymMatProd<Scalar>> eigs(op, nev, ncv);
 
     eigs.init();
     int nconv = eigs.compute(SortRule::LargestAlge);
 
-    Eigen::VectorXd evalues;
-    if(eigs.info() == CompInfo::Successful)
+    Vector evalues;
+    Matrix evectors;
+    if (eigs.info() == CompInfo::Successful)
         evalues = eigs.eigenvalues();
+    evectors = eigs.eigenvectors();
 
-    return evalues;
+    return std::make_pair(evalues, evectors);
 }
-
 
 // using np_array_f32 = pybind11::array_t<float, pybind11::array::c_style | pybind11::array::forcecast>;
 // np_array_f32 eigs(std::function<np_array_f32(np_array_f32)> func, np_array_f32 x) {
 //     return func(x);
 // }
 
-
 PYBIND11_MODULE(spectra_ext, m)
 {
-    // m.def("eigs", &eigs);
-    m.def("eigs2", &eigs2);
+    m.def("eigs_sym_dense_float64", &eigs_eigen_sym<double, DenseSymMatProd<double>>);
+    m.def("eigs_python_backend_float64", &eigs_python_backend<double>);
     // m.def("np_to_eigen32", &np_to_eigen<float, Eigen::MatrixXf>);
     // m.def("np_to_eigen64", &np_to_eigen<double, Eigen::MatrixXd>);
 }

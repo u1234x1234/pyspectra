@@ -1,47 +1,33 @@
-import pyspectra
 import numpy as np
 from uxils.time import Timer
-from scipy.sparse.linalg import eigsh
-from spectra_ext import eigs2
+import pyspectra
 import cupy
 
-with Timer("init"):
-    cupy.array(np.zeros(10000))
-n = 0
+cupy.zeros(1000*1000)
 
-def func(mat, x, y):
-    y[:] = mat.dot(x)
-
-
-def func(mat, x, y):
-    # mat = cupy.array(mat)
-    with Timer("cupy"):
-        global n
-        n += 1
-        # x1 = cupy.array(x)
-
-    y[:] = mat.dot(x)
-
-
-# r = pyspectra.eigs(func, np.array([1, 2, 3], dtype=np.float32))
-# print(r)
-# qwe
-
-x = np.random.uniform(-20, 20, size=(2000, 2000))
+x = np.random.normal(0, 20, size=(10_000, 1000))
 x = x.dot(x.T)
 print(x.shape)
+n_values = 16
 
 
-with Timer("scipy"):
-    r2 = eigsh(x, k=3)
-print(r2[0][:3])
+with Timer("scipy ARPACK"):
+    from scipy.sparse.linalg import eigsh
+    evalues, evectors = eigsh(x, k=n_values)
+    indices = np.argsort(-evalues)
+    evalues_scipy = evalues[indices]
+    evectors_scipy = evectors.T[indices].T
 
-with Timer("spectra"):
-    r = eigs2(x.T, func)
 
-print(r[:3])
-print(n)
+results = []
+for backend in ["numpy", "eigen", "cupy"]:
+    with Timer(backend) as timer:
+        evalues, evectors = pyspectra.eigs(x.T, n_values, backend=backend)
 
-# with Timer("np"):
-#     vec, val = np.linalg.eig(x)
-# print(vec[:5])
+    assert np.allclose(evalues_scipy, evalues)
+    assert np.allclose(np.abs(evectors_scipy), np.abs(evectors))  # Up to sign
+
+    results.append({"backend": backend, "time": timer.elapsed})
+
+    from uxils.pprint_ext import print_table
+    print_table(results)
