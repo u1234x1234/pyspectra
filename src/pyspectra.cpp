@@ -6,7 +6,10 @@
 
 #include <iostream>
 #include <Eigen/Core>
+#include <Eigen/SparseCore>
+
 #include <Spectra/SymEigsSolver.h>
+#include <Spectra/MatOp/SparseSymMatProd.h>
 #include <Spectra/contrib/PartialSVDSolver.h>
 
 using namespace std;
@@ -14,44 +17,70 @@ using namespace Spectra;
 
 namespace py = pybind11;
 
+// Aliases
 template <typename T>
 using ndarray = pybind11::array_t<T, pybind11::array::c_style | pybind11::array::forcecast>;
-
 template <typename T>
 using EigenMatrix = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>;
 template <typename T>
 using EigenVector = Eigen::Matrix<T, Eigen::Dynamic, 1>;
+template <typename T>
+using MapConstVec = Eigen::Map<const EigenVector<T>>;
+template <typename T>
+using MapVec = Eigen::Map<EigenVector<T>>;
 
-template <typename Scalar_, int Uplo = Eigen::Lower, int Flags = Eigen::ColMajor>
-class PythonSymMatProd
+template <typename Scalar_, int Uplo = Eigen::Lower>
+class PythonDenseSymMatProd
 {
 public:
     using Scalar = Scalar_;
 
 private:
-    using Index = Eigen::Index;
-    using Matrix = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Flags>;
-    using Vector = Eigen::Matrix<Scalar, Eigen::Dynamic, 1>;
-    using MapConstVec = Eigen::Map<const Vector>;
-    using MapVec = Eigen::Map<Vector>;
-
     py::buffer_info info;
     py::object backend;
 
 public:
-    PythonSymMatProd(ndarray<Scalar_> array, py::object backend)
+    PythonDenseSymMatProd(ndarray<Scalar> array, py::object backend)
     {
         this->backend = backend(array);
         info = array.request();
     }
 
-    Index rows() const { return info.shape[0]; }
-    Index cols() const { return info.shape[1]; }
+    Eigen::Index rows() const { return info.shape[0]; }
+    Eigen::Index cols() const { return info.shape[1]; }
 
     void perform_op(const Scalar *x_in, Scalar *y_out) const
     {
-        MapConstVec x(x_in, info.shape[1]);
-        MapVec y(y_out, info.shape[0]);
+        MapConstVec<Scalar> x(x_in, info.shape[1]);
+        MapVec<Scalar> y(y_out, info.shape[0]);
+        this->backend.attr("matrix_vector_product")(x, y);
+    }
+};
+
+template <typename Scalar_, typename InMatrix, int Uplo = Eigen::Lower, int Flags = Eigen::ColMajor, typename StorageIndex = int>
+class PythonSparseSymMatProd
+{
+public:
+    using Scalar = Scalar_;
+private:
+
+    InMatrix m_mat;
+    py::object backend;
+
+public:
+    PythonSparseSymMatProd(const InMatrix& mat, py::object backend) :
+        m_mat(mat)
+    {
+        this->backend = backend(mat);
+    }
+
+    Eigen::Index rows() const { return m_mat.rows(); }
+    Eigen::Index cols() const { return m_mat.cols(); }
+
+    void perform_op(const Scalar *x_in, Scalar *y_out) const
+    {
+        MapConstVec<Scalar> x(x_in, m_mat.cols());
+        MapVec<Scalar> y(y_out, m_mat.rows());
         this->backend.attr("matrix_vector_product")(x, y);
     }
 };
@@ -79,17 +108,16 @@ Matrix ndarrayToMatrixX(pybind11::array_t<num_t, pybind11::array::c_style | pybi
     return Matrix(map);
 }
 
-template <typename Scalar, typename MatProd, typename Vector = EigenVector<Scalar>, typename Matrix = EigenMatrix<Scalar>>
-std::tuple<Vector, Matrix, int> eigs_eigen_sym(Eigen::Ref<const Matrix> v, size_t nev, size_t ncv, size_t max_iter)
+template <typename Scalar, typename MatProd>
+std::tuple<EigenVector<Scalar>, EigenMatrix<Scalar>, int> eigsCompute(SymEigsSolver<MatProd> &eigs, size_t max_iter)
 {
-    MatProd op(v);
-    SymEigsSolver<MatProd> eigs(op, nev, ncv);
     eigs.init();
     eigs.compute(SortRule::LargestAlge, max_iter);
 
-    Vector evalues;
-    Matrix evectors;
-    if (eigs.info() == CompInfo::Successful) {
+    EigenVector<Scalar> evalues;
+    EigenMatrix<Scalar> evectors;
+    if (eigs.info() == CompInfo::Successful)
+    {
         evalues = eigs.eigenvalues();
         evectors = eigs.eigenvectors();
     }
@@ -98,24 +126,20 @@ std::tuple<Vector, Matrix, int> eigs_eigen_sym(Eigen::Ref<const Matrix> v, size_
     return std::make_tuple(evalues, evectors, status);
 }
 
-template <typename Scalar, typename Vector = EigenVector<Scalar>, typename Matrix = EigenMatrix<Scalar>>
-std::tuple<Vector, Matrix, int> eigs_python_backend(ndarray<Scalar> v, size_t nev, size_t ncv, size_t max_iter, py::object func)
+template <typename Scalar, typename MatProd, typename InMatrix = Eigen::Ref<const EigenMatrix<Scalar>>>
+std::tuple<EigenVector<Scalar>, EigenMatrix<Scalar>, int> eigs_eigen(InMatrix v, size_t nev, size_t ncv, size_t max_iter)
 {
-    PythonSymMatProd<Scalar> op(v, func);
-    SymEigsSolver<PythonSymMatProd<Scalar>> eigs(op, nev, ncv);
+    MatProd op(v);
+    SymEigsSolver<MatProd> eigs(op, nev, ncv);
+    return eigsCompute<Scalar, MatProd>(eigs, max_iter);
+}
 
-    eigs.init();
-    eigs.compute(SortRule::LargestAlge, max_iter);
-
-    Vector evalues;
-    Matrix evectors;
-    if (eigs.info() == CompInfo::Successful) {
-        evalues = eigs.eigenvalues();
-        evectors = eigs.eigenvectors();
-    }
-    int status = static_cast<int>(eigs.info());
-
-    return std::make_tuple(evalues, evectors, status);
+template <typename Scalar, typename MatProd, typename InMatrix = ndarray<Scalar>>
+std::tuple<EigenVector<Scalar>, EigenMatrix<Scalar>, int> eigs_pybackend(InMatrix v, size_t nev, size_t ncv, size_t max_iter, py::object backend)
+{
+    MatProd op(v, backend);
+    SymEigsSolver<MatProd> eigs(op, nev, ncv);
+    return eigsCompute<Scalar, MatProd>(eigs, max_iter);
 }
 
 template <typename Scalar, typename Vector = EigenVector<Scalar>, typename Matrix = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>>
@@ -133,12 +157,19 @@ std::tuple<Matrix, Vector, Matrix> partial_svd(Eigen::Ref<const Matrix> mat, siz
 
 PYBIND11_MODULE(spectra_ext, m)
 {
-    m.def("eigs_sym_dense_float32", &eigs_eigen_sym<float, DenseSymMatProd<float>>);
-    m.def("eigs_sym_dense_float64", &eigs_eigen_sym<double, DenseSymMatProd<double>>);
+    // m.def("sym_eigs_dense_eigen_float32", &eigs_eigen<float, DenseSymMatProd<float>>);
+    // m.def("sym_eigs_dense_eigen_float64", &eigs_eigen_sym<double, DenseSymMatProd<double>>);
 
-    m.def("eigs_python_backend_float32", &eigs_python_backend<float>);
-    m.def("eigs_python_backend_float64", &eigs_python_backend<double>);
+    // m.def("eigs_sym_sparse_float32", &eigs_eigen_sym<float, SparseSymMatProd<float>, Eigen::SparseMatrix<float>>);
+    // m.def("eigs_sym_sparse_float64", &eigs_eigen_sym<float, SparseSymMatProd<float>, Eigen::SparseMatrix<float>>);
 
-    m.def("partial_svd_float32", &partial_svd<float>);
-    m.def("partial_svd_float64", &partial_svd<double>);
+    // Function based on python backends: float32/float64, dense/sparse
+    m.def("sym_eigs_dense_pybackend_float32", &eigs_pybackend<float, PythonDenseSymMatProd<float>>);
+    // m.def("sym_eigs_dense_pybackend_float64", &eigs_python_backend<double, PythonDenseSymMatProd<double>>);
+
+    m.def("sym_eigs_sparse_pybackend_float32", &eigs_pybackend<float, PythonSparseSymMatProd<float, Eigen::SparseMatrix<float>>, Eigen::SparseMatrix<float>>);
+    // m.def("sym_eigs_sparse_pybackend_float64", &eigs_pybackend<double, PythonSparseSymMatProd<double, Eigen::SparseMatrix<double>>, Eigen::SparseMatrix<double>>);
+
+    // m.def("partial_svd_float32", &partial_svd<float>);
+    // m.def("partial_svd_float64", &partial_svd<double>);
 }

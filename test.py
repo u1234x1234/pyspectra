@@ -1,16 +1,22 @@
+import cupy
+import numpy as np
+from scipy import sparse
+from scipy.sparse.csr import csr_matrix
+import spectra_ext
+from scipy.sparse.linalg import eigsh
+from uxils.sparse import density
+from uxils.time import Timer
 import time
 import numpy as np
-import torch
-from scipy.sparse.linalg import eigsh
+# import torch
 from uxils.pprint_ext import print_table
-from uxils.time import Timer
 import pyspectra
-import jax.numpy as jnp
 
-x = np.zeros((10000, 5000))
-y = np.zeros((5000,))
+# import jax.numpy as jnp
+# x = np.zeros((10000, 5000))
+# y = np.zeros((5000,))
 # x = jnp.asarray(x)
-r = jnp.dot(x, y)
+# r = jnp.dot(x, y)
 # print(np.array(r))
 # qwe
 
@@ -27,16 +33,26 @@ r = jnp.dot(x, y)
 
 # print(r.numpy().shape)
 # cupy.zeros(1000*1000)
-torch.zeros(1000 * 1000).cuda()
-torch.set_grad_enabled(False)
+# torch.zeros(1000 * 1000).cuda()
+# torch.set_grad_enabled(False)
 
-x = np.random.normal(0, 20, size=(15000, 1000)).astype(np.float32)
+# x = np.random.normal(0, 20, size=(100, 1000)).astype(np.float32)
+# x = x.dot(x.T)
+x = sparse.random(10000, 100, density=0.05, format="csr", dtype=np.float32)
 x = x.dot(x.T)
 print(x.shape)
 
-n_values = 16
+# import cupyx
+# d = cupyx.scipy.sparse.csr_matrix(x)
+# y = np.zeros((10_000, 1), dtype=np.float32)
+# y = cupyx.scipy.sparse.csr_matrix(csr_matrix(y))
+# r = d.dot(y).todense().get()
+# print(type(r))
+# qwe
+
+n_values = 64
 maxiter = 1000
-n_repetitions = 5
+n_repetitions = 3
 
 results = []
 
@@ -48,6 +64,7 @@ evalues_scipy = evalues[indices]
 evectors_scipy = evectors.T[indices].T
 
 for backend in [
+    "scipy",
     # "numpy",
     # "eigen",
     # "cupy",
