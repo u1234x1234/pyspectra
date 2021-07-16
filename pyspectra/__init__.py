@@ -1,6 +1,11 @@
-import spectra_ext
+import importlib
 from abc import ABC, abstractmethod
-import cupy
+
+import numpy as np
+import spectra_ext
+
+cupy = None
+torch = None
 
 
 class MatProdBackend(ABC):
@@ -35,27 +40,78 @@ class CupyBackend(MatProdBackend):
 
 
 class TorchBackend(MatProdBackend):
-    pass
+    def __init__(self, mat):
+        self._mat = torch.from_numpy(mat).cuda()
+
+    def matrix_vector_product(self, x, y):
+        x = torch.from_numpy(x).cuda()
+        yt = torch.from_numpy(y).cuda()
+        torch.mv(self._mat, x, out=yt)
+        y[:] = yt.cpu().numpy()
 
 
-def eigs(x, n_top, backend="eigen"):
+def check_dtype(x):
+    if x.dtype == np.float32:
+        suffix = "float32"
+    elif x.dtype == np.float64:
+        suffix = "float64"
+    else:
+        raise ValueError(f"Only float32/64 dtypes are supported now. Passed: {x.dtype}")
+
+    return suffix
+
+
+def _load_module(name):
+    try:
+        m = importlib.import_module(name)
+    except ModuleNotFoundError as e:
+        raise ValueError(f"Please check the module '{name}' is installed.") from e
+
+    globals()[name] = m
+
+
+def eigsh(x, n_top, maxiter=1000, backend="eigen"):
+    "Find k eigenvalues and eigenvectors of the real symmetric square matrix"
+
+    suffix = check_dtype(x)
+
+    func_name = f"eigs_python_backend_{suffix}"
     if backend == "eigen":
-        f = spectra_ext.eigs_sym_dense_float64
+        func_name = f"eigs_sym_dense_{suffix}"
         args = ()
     elif backend == "numpy":
-        f = spectra_ext.eigs_python_backend_float64
         args = (NumpyBackend,)
     elif backend == "cupy":
-        f = spectra_ext.eigs_python_backend_float64
+        _load_module("cupy")
         args = (CupyBackend,)
     elif backend == "pytorch":
-        f = spectra_ext.eigs_python_backend_float64
+        _load_module("torch")
         args = (TorchBackend,)
     elif isinstance(backend, MatProdBackend):
-        f = spectra_ext.eigs_python_backend_float64
         args = (backend,)
     else:
-        raise ValueError(f"Unknown backend: {backend}")
+        raise ValueError(
+            f"Unknown backend: {backend}. Available options: eigen, numpy, pytorch, cupy"
+        )
 
+    f = spectra_ext.__dict__[func_name]
     ncv = n_top * 2
-    return f(x, n_top, ncv, *args)
+    evalues, evectors, status = f(x, n_top, ncv, maxiter, *args)
+
+    if status == 2:
+        raise ValueError("NotConverging")
+    elif status == 3:
+        raise ValueError("NumericalIssue")
+
+    return evalues, evectors
+
+
+def partial_svd(x, k, ncv=None):
+    suffix = check_dtype(x)
+
+    if ncv is None:
+        ncv = k * 2
+
+    func_name = f"partial_svd_{suffix}"
+    r = spectra_ext.__dict__[func_name](x, k, ncv)
+    return r

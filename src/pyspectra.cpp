@@ -7,6 +7,7 @@
 #include <iostream>
 #include <Eigen/Core>
 #include <Spectra/SymEigsSolver.h>
+#include <Spectra/contrib/PartialSVDSolver.h>
 
 using namespace std;
 using namespace Spectra;
@@ -15,10 +16,6 @@ namespace py = pybind11;
 
 template <typename T>
 using ndarray = pybind11::array_t<T, pybind11::array::c_style | pybind11::array::forcecast>;
-
-using ndarray_fp32 = pybind11::array_t<float, pybind11::array::c_style | pybind11::array::forcecast>;
-using ndarray_fp64 = pybind11::array_t<double, pybind11::array::c_style | pybind11::array::forcecast>;
-
 
 template <typename T>
 using EigenMatrix = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>;
@@ -39,7 +36,6 @@ private:
     using MapVec = Eigen::Map<Vector>;
 
     py::buffer_info info;
-    py::object func;
     py::object backend;
 
 public:
@@ -47,7 +43,6 @@ public:
     {
         this->backend = backend(array);
         info = array.request();
-        this->func = func;
     }
 
     Index rows() const { return info.shape[0]; }
@@ -85,49 +80,65 @@ Matrix ndarrayToMatrixX(pybind11::array_t<num_t, pybind11::array::c_style | pybi
 }
 
 template <typename Scalar, typename MatProd, typename Vector = EigenVector<Scalar>, typename Matrix = EigenMatrix<Scalar>>
-std::pair<Vector, Matrix> eigs_eigen_sym(Eigen::Ref<const Matrix> v, size_t nev, size_t ncv)
+std::tuple<Vector, Matrix, int> eigs_eigen_sym(Eigen::Ref<const Matrix> v, size_t nev, size_t ncv, size_t max_iter)
 {
     MatProd op(v);
     SymEigsSolver<MatProd> eigs(op, nev, ncv);
     eigs.init();
-    int nconv = eigs.compute(SortRule::LargestAlge);
+    eigs.compute(SortRule::LargestAlge, max_iter);
 
     Vector evalues;
     Matrix evectors;
-    if (eigs.info() == CompInfo::Successful)
+    if (eigs.info() == CompInfo::Successful) {
         evalues = eigs.eigenvalues();
-    evectors = eigs.eigenvectors();
+        evectors = eigs.eigenvectors();
+    }
+    int status = static_cast<int>(eigs.info());
 
-    return std::make_pair(evalues, evectors);
+    return std::make_tuple(evalues, evectors, status);
 }
 
 template <typename Scalar, typename Vector = EigenVector<Scalar>, typename Matrix = EigenMatrix<Scalar>>
-std::pair<Vector, Matrix> eigs_python_backend(ndarray<Scalar> v, size_t nev, size_t ncv, py::object func)
+std::tuple<Vector, Matrix, int> eigs_python_backend(ndarray<Scalar> v, size_t nev, size_t ncv, size_t max_iter, py::object func)
 {
     PythonSymMatProd<Scalar> op(v, func);
     SymEigsSolver<PythonSymMatProd<Scalar>> eigs(op, nev, ncv);
 
     eigs.init();
-    int nconv = eigs.compute(SortRule::LargestAlge);
+    eigs.compute(SortRule::LargestAlge, max_iter);
 
     Vector evalues;
     Matrix evectors;
-    if (eigs.info() == CompInfo::Successful)
+    if (eigs.info() == CompInfo::Successful) {
         evalues = eigs.eigenvalues();
-    evectors = eigs.eigenvectors();
+        evectors = eigs.eigenvectors();
+    }
+    int status = static_cast<int>(eigs.info());
 
-    return std::make_pair(evalues, evectors);
+    return std::make_tuple(evalues, evectors, status);
 }
 
-// using np_array_f32 = pybind11::array_t<float, pybind11::array::c_style | pybind11::array::forcecast>;
-// np_array_f32 eigs(std::function<np_array_f32(np_array_f32)> func, np_array_f32 x) {
-//     return func(x);
-// }
+template <typename Scalar, typename Vector = EigenVector<Scalar>, typename Matrix = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>>
+std::tuple<Matrix, Vector, Matrix> partial_svd(Eigen::Ref<const Matrix> mat, size_t nev, size_t ncv)
+{
+    PartialSVDSolver<Matrix> svd(mat, nev, ncv);
+    svd.compute();
+
+    auto u = svd.matrix_U(nev);
+    auto s = svd.singular_values();
+    auto v = svd.matrix_V(nev);
+
+    return std::make_tuple(u, s, v);
+}
 
 PYBIND11_MODULE(spectra_ext, m)
 {
+    m.def("eigs_sym_dense_float32", &eigs_eigen_sym<float, DenseSymMatProd<float>>);
     m.def("eigs_sym_dense_float64", &eigs_eigen_sym<double, DenseSymMatProd<double>>);
+
+    m.def("eigs_python_backend_float32", &eigs_python_backend<float>);
     m.def("eigs_python_backend_float64", &eigs_python_backend<double>);
-    // m.def("np_to_eigen32", &np_to_eigen<float, Eigen::MatrixXf>);
-    // m.def("np_to_eigen64", &np_to_eigen<double, Eigen::MatrixXd>);
+
+    m.def("partial_svd_float32", &partial_svd<float>);
+    m.def("partial_svd_float64", &partial_svd<double>);
 }
