@@ -2,7 +2,7 @@ import numpy as np
 import spectra_ext
 from scipy import sparse
 
-from .backends import get_backend
+from .backends import DENSE_BACKENDS, SPARSE_BACKENDS, get_backend
 
 
 def _detect_matrix_type(x):
@@ -35,7 +35,6 @@ def eigsh(x, k, ncv=None, maxiter=1000, backend="eigen"):
     "Find k eigenvalues and eigenvectors of the real symmetric square matrix"
 
     dtype_name, matrix_type_name = _detect_matrix_type(x)
-    backend_class = get_backend(backend, matrix_type_name)
 
     func_name = f"eigs_python_backend_{dtype_name}"
 
@@ -44,10 +43,10 @@ def eigsh(x, k, ncv=None, maxiter=1000, backend="eigen"):
         args = ()
     else:
         func_name = f"sym_eigs_{matrix_type_name}_pybackend_{dtype_name}"
-        args = (backend_class,)
+        args = (get_backend(backend, matrix_type_name),)
 
     f = spectra_ext.__dict__[func_name]
-    ncv = k * 2 if ncv is None else ncv
+    ncv = min(k * 2, len(x)) if ncv is None else ncv
     evalues, evectors, status = f(x, k, ncv, maxiter, *args)
 
     if status == 2:
@@ -61,9 +60,16 @@ def eigsh(x, k, ncv=None, maxiter=1000, backend="eigen"):
 def partial_svd(x, k, ncv=None):
     dtype_name, matrix_type_name = _detect_matrix_type(x)
 
-    if ncv is None:
-        ncv = k * 2
+    ncv = min(k * 2, len(x)) if ncv is None else ncv
 
     func_name = f"partial_svd_{dtype_name}"
     r = spectra_ext.__dict__[func_name](x, k, ncv)
     return r
+
+
+def list_dense_backends():
+    return ["eigen"] + list(DENSE_BACKENDS.keys())
+
+
+def list_sparse_backends():
+    return ["eigen"] + list(SPARSE_BACKENDS.keys())

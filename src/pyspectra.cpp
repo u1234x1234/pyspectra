@@ -157,18 +157,18 @@ std::tuple<Matrix, Vector, Matrix> partial_svd(Eigen::Ref<const Matrix> mat, siz
 
 PYBIND11_MODULE(spectra_ext, m)
 {
-    // m.def("sym_eigs_dense_eigen_float32", &eigs_eigen<float, DenseSymMatProd<float>>);
-    // m.def("sym_eigs_dense_eigen_float64", &eigs_eigen_sym<double, DenseSymMatProd<double>>);
+    m.def("sym_eigs_dense_eigen_float32", &eigs_eigen<float, DenseSymMatProd<float>>);
+    m.def("sym_eigs_dense_eigen_float64", &eigs_eigen<double, DenseSymMatProd<double>>);
 
-    // m.def("eigs_sym_sparse_float32", &eigs_eigen_sym<float, SparseSymMatProd<float>, Eigen::SparseMatrix<float>>);
-    // m.def("eigs_sym_sparse_float64", &eigs_eigen_sym<float, SparseSymMatProd<float>, Eigen::SparseMatrix<float>>);
+    m.def("sym_eigs_sparse_float32", &eigs_eigen<float, SparseSymMatProd<float>, Eigen::SparseMatrix<float>>);
+    m.def("sym_eigs_sparse_float64", &eigs_eigen<float, SparseSymMatProd<float>, Eigen::SparseMatrix<float>>);
 
     // Function based on python backends: float32/float64, dense/sparse
     m.def("sym_eigs_dense_pybackend_float32", &eigs_pybackend<float, PythonDenseSymMatProd<float>>);
-    // m.def("sym_eigs_dense_pybackend_float64", &eigs_python_backend<double, PythonDenseSymMatProd<double>>);
+    m.def("sym_eigs_dense_pybackend_float64", &eigs_pybackend<double, PythonDenseSymMatProd<double>>);
 
     m.def("sym_eigs_sparse_pybackend_float32", &eigs_pybackend<float, PythonSparseSymMatProd<float, Eigen::SparseMatrix<float>>, Eigen::SparseMatrix<float>>);
-    // m.def("sym_eigs_sparse_pybackend_float64", &eigs_pybackend<double, PythonSparseSymMatProd<double, Eigen::SparseMatrix<double>>, Eigen::SparseMatrix<double>>);
+    m.def("sym_eigs_sparse_pybackend_float64", &eigs_pybackend<double, PythonSparseSymMatProd<double, Eigen::SparseMatrix<double>>, Eigen::SparseMatrix<double>>);
 
     // m.def("partial_svd_float32", &partial_svd<float>);
     // m.def("partial_svd_float64", &partial_svd<double>);

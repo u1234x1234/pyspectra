@@ -6,7 +6,7 @@ from scipy import sparse
 
 # External will only be imported in case of actual using
 cupy = None
-cupyx = None  # sparse
+cupyx = None  # cupy sparse
 torch = None
 tensorflow = None
 jax = None
@@ -34,12 +34,53 @@ class MatProdBackend(ABC):
         pass
 
 
-class NumpyBackend(MatProdBackend):
+class DenseNumpyBackend(MatProdBackend):
     def __init__(self, mat):
         self._mat = mat
 
     def matrix_vector_product(self, x, y):
         y[:] = self._mat.dot(x)
+
+
+class DenseCupyBackend(MatProdBackend):
+    def __init__(self, mat):
+        self._mat = cupy.asarray(mat)
+
+        self._x = cupy.zeros(mat.shape[0], dtype=mat.dtype)
+        self._y = cupy.zeros(mat.shape[0], dtype=mat.dtype)
+
+    def matrix_vector_product(self, x, y):
+        self._x.set(x)
+        cupy.dot(self._mat, self._x, self._y)
+        y[:] = self._y.get()
+
+
+class DenseTorchBackend(MatProdBackend):
+    def __init__(self, mat):
+        self._mat = torch.from_numpy(mat).cuda()
+
+    def matrix_vector_product(self, x, y):
+        x = torch.from_numpy(x).cuda()
+        yt = torch.from_numpy(y).cuda()
+        torch.mv(self._mat, x, out=yt)
+        y[:] = yt.cpu().numpy()
+
+
+class DenseTensorflowBackend(MatProdBackend):
+    def __init__(self, mat):
+        self._mat = tensorflow.constant(mat)
+
+    def matrix_vector_product(self, x, y):
+        r = tensorflow.linalg.matvec(self._mat, x)
+        y[:] = r.numpy()
+
+
+class DenseJaxBackend(MatProdBackend):
+    def __init__(self, mat):
+        self._mat = jax.device_put(mat)
+
+    def matrix_vector_product(self, x, y):
+        y[:] = jax.numpy.dot(self._mat, x)
 
 
 class SparseScipyBackend(MatProdBackend):
@@ -75,52 +116,12 @@ class SparseCupyBackend(MatProdBackend):
         y[:] = self._mat.dot(x).todense().get().ravel()
 
 
-class CupyDenseBackend(MatProdBackend):
-    def __init__(self, mat):
-        self._mat = cupy.asarray(mat)
-
-        self._x = cupy.zeros(mat.shape[0], dtype=mat.dtype)
-        self._y = cupy.zeros(mat.shape[0], dtype=mat.dtype)
-
-    def matrix_vector_product(self, x, y):
-        self._x.set(x)
-        cupy.dot(self._mat, self._x, self._y)
-        y[:] = self._y.get()
-
-
-class TorchDenseBackend(MatProdBackend):
-    def __init__(self, mat):
-        self._mat = torch.from_numpy(mat).cuda()
-
-    def matrix_vector_product(self, x, y):
-        x = torch.from_numpy(x).cuda()
-        yt = torch.from_numpy(y).cuda()
-        torch.mv(self._mat, x, out=yt)
-        y[:] = yt.cpu().numpy()
-
-
-class TensorflowDenseBackend(MatProdBackend):
-    def __init__(self, mat):
-        self._mat = tensorflow.constant(mat)
-
-    def matrix_vector_product(self, x, y):
-        r = tensorflow.linalg.matvec(self._mat, x)
-        y[:] = r.numpy()
-
-
-class JaxDenseBackend(MatProdBackend):
-    def __init__(self, mat):
-        self._mat = jax.device_put(mat)
-
-    def matrix_vector_product(self, x, y):
-        y[:] = jax.numpy.dot(self._mat, x)
-
-
 DENSE_BACKENDS = {
-    "numpy": NumpyBackend,
-    "cupy": CupyDenseBackend,
-    "torch": TorchDenseBackend,
-    "tensorflow": TensorflowDenseBackend,
+    "numpy": DenseNumpyBackend,
+    "cupy": DenseCupyBackend,
+    "torch": DenseTorchBackend,
+    "tensorflow": DenseTensorflowBackend,
+    "jax": DenseJaxBackend,
 }
 
 SPARSE_BACKENDS = {

@@ -1,86 +1,72 @@
-import cupy
+import pickle
+from collections import defaultdict
+
 import numpy as np
 from scipy import sparse
-from scipy.sparse.csr import csr_matrix
-import spectra_ext
 from scipy.sparse.linalg import eigsh
-from uxils.sparse import density
-from uxils.time import Timer
-import time
-import numpy as np
-# import torch
-from uxils.pprint_ext import print_table
+from uxils.time.benchmark import benchmark_func
+
 import pyspectra
 
-# import jax.numpy as jnp
-# x = np.zeros((10000, 5000))
-# y = np.zeros((5000,))
-# x = jnp.asarray(x)
-# r = jnp.dot(x, y)
-# print(np.array(r))
-# qwe
+
+def get_sparse_sym(size):
+    x = sparse.random(size, 1000, density=0.01, format="csr", dtype=np.float32)
+    return x.dot(x.T)
 
 
-# import tensorflow as tf
-# tf.debugging.set_log_device_placement(True)
-# gpus = tf.config.experimental.list_physical_devices('GPU')
-# for gpu in gpus:
-    # tf.config.experimental.set_memory_growth(gpu, True)
-# r = tf.linalg.matvec(x, y)
+def get_dense_sym(size):
+    x = np.random.normal(0, 20, size=(size, 500)).astype(np.float32)
+    return x.dot(x.T)
 
-# with Timer():
-#     r = tf.linalg.matvec(x, y)
-
-# print(r.numpy().shape)
-# cupy.zeros(1000*1000)
-# torch.zeros(1000 * 1000).cuda()
-# torch.set_grad_enabled(False)
-
-# x = np.random.normal(0, 20, size=(100, 1000)).astype(np.float32)
-# x = x.dot(x.T)
-x = sparse.random(10000, 100, density=0.05, format="csr", dtype=np.float32)
-x = x.dot(x.T)
-print(x.shape)
-
-# import cupyx
-# d = cupyx.scipy.sparse.csr_matrix(x)
-# y = np.zeros((10_000, 1), dtype=np.float32)
-# y = cupyx.scipy.sparse.csr_matrix(csr_matrix(y))
-# r = d.dot(y).todense().get()
-# print(type(r))
-# qwe
 
 n_values = 64
 maxiter = 1000
 n_repetitions = 3
+g_res = defaultdict(dict)
 
-results = []
+for mat_size in [100, 1000, 2000, 10_000, 30_000]:
+    x = get_dense_sym(mat_size)
 
-st = time.time()
-evalues, evectors = eigsh(x, k=n_values)
-results.append({"backend": "scipy ARPACK", "time": time.time() - st})
-indices = np.argsort(-evalues)
-evalues_scipy = evalues[indices]
-evectors_scipy = evectors.T[indices].T
+    def scipy_eigsh():
+        return eigsh(x, k=n_values)
 
-for backend in [
-    "scipy",
-    # "numpy",
-    # "eigen",
-    # "cupy",
-    # "pytorch",
-    # "tensorflow"
-    "jax",
-]:
-    time_estimations = []
-    for _ in range(n_repetitions):
-        st = time.time()
-        evalues, evectors = pyspectra.eigsh(x.T, n_values, backend=backend, maxiter=maxiter)
-        st = time.time() - st
-        time_estimations.append(st)
+    (evalues, evectors), measurements = benchmark_func(scipy_eigsh, 1, sandbox=0)
 
-    results.append({"backend": backend, "time": np.median(time_estimations), "time std": np.std(time_estimations)})
-    print_table(results)
+    indices = np.argsort(-evalues)
+    evalues_gt = evalues[indices]
+    evectors_gt = evectors.T[indices].T
+    g_res["scipy.eigsh[arpack]"][mat_size] = measurements
 
-    assert np.allclose(evalues_scipy, evalues, rtol=0.1, atol=0.1)
-    assert np.allclose(np.abs(evectors_scipy), np.abs(evectors), rtol=0.1, atol=0.1)  # Up to sign
+    for backend in [
+        # "scipy",
+        "numpy",
+        "eigen",
+        "cupy",
+        "torch",
+        "tensorflow",
+        "jax",
+    ]:
+
+        def pyspectra_eigsh():
+            return pyspectra.eigsh(x.T, n_values, backend=backend, maxiter=maxiter)
+
+        (evalues, evectors), measurements = benchmark_func(
+            pyspectra_eigsh, 1, sandbox=1
+        )
+
+        print(mat_size, backend)
+        assert np.allclose(evalues_gt, evalues, rtol=0.1, atol=0.1)
+        assert np.allclose(
+            np.abs(evectors_gt), np.abs(evectors), rtol=0.1, atol=0.1
+        )  # Up to sign
+
+        if backend == "eigen":
+            name = "Spectra default [Eigen]"
+        else:
+            name = f"pyspectra with {backend} backend"
+
+        g_res[name][mat_size] = measurements
+
+
+with open("measurements2.pkl", "wb") as out_file:
+    pickle.dump(g_res, out_file)
