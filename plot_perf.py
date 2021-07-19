@@ -4,9 +4,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from uxils.plot.plotly_ext import show_figure, update_fig
 
-pallete = px.colors.qualitative.Bold
+pallete = px.colors.qualitative.G10
 
-with open("measurements.pkl", "rb") as in_file:
+with open("measurements2.pkl", "rb") as in_file:
     g_res = pickle.load(in_file)
 
 fig = go.Figure()
@@ -34,5 +34,6 @@ update_fig(
     yaxis_title="time, seconds",
     legend_title="used method",
     title=title,
+    x_log=False,
 )
 show_figure(fig)

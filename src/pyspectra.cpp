@@ -12,6 +12,8 @@
 #include <Spectra/MatOp/SparseSymMatProd.h>
 #include <Spectra/contrib/PartialSVDSolver.h>
 
+#include "svd.hpp"
+
 using namespace std;
 using namespace Spectra;
 
@@ -53,7 +55,7 @@ public:
     {
         MapConstVec<Scalar> x(x_in, info.shape[1]);
         MapVec<Scalar> y(y_out, info.shape[0]);
-        this->backend.attr("matrix_vector_product")(x, y);
+        this->backend.attr("perform_op")(x, y);
     }
 };
 
@@ -62,14 +64,13 @@ class PythonSparseSymMatProd
 {
 public:
     using Scalar = Scalar_;
-private:
 
+private:
     InMatrix m_mat;
     py::object backend;
 
 public:
-    PythonSparseSymMatProd(const InMatrix& mat, py::object backend) :
-        m_mat(mat)
+    PythonSparseSymMatProd(const InMatrix &mat, py::object backend) : m_mat(mat)
     {
         this->backend = backend(mat);
     }
@@ -81,7 +82,7 @@ public:
     {
         MapConstVec<Scalar> x(x_in, m_mat.cols());
         MapVec<Scalar> y(y_out, m_mat.rows());
-        this->backend.attr("matrix_vector_product")(x, y);
+        this->backend.attr("perform_op")(x, y);
     }
 };
 
@@ -155,6 +156,19 @@ std::tuple<Matrix, Vector, Matrix> partial_svd(Eigen::Ref<const Matrix> mat, siz
     return std::make_tuple(u, s, v);
 }
 
+template <typename Scalar, typename Vector = EigenVector<Scalar>, typename Matrix = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>>
+std::tuple<Matrix, Vector, Matrix> partial_svd_python(Eigen::Ref<const Matrix> mat, size_t nev, size_t ncv, py::object backend)
+{
+    PythonPartialSVDSolver<Matrix> svd(mat, nev, ncv, backend);
+    svd.compute();
+
+    auto u = svd.matrix_U(nev);
+    auto s = svd.singular_values();
+    auto v = svd.matrix_V(nev);
+
+    return std::make_tuple(u, s, v);
+}
+
 PYBIND11_MODULE(spectra_ext, m)
 {
     m.def("sym_eigs_dense_eigen_float32", &eigs_eigen<float, DenseSymMatProd<float>>);
@@ -170,6 +184,10 @@ PYBIND11_MODULE(spectra_ext, m)
     m.def("sym_eigs_sparse_pybackend_float32", &eigs_pybackend<float, PythonSparseSymMatProd<float, Eigen::SparseMatrix<float>>, Eigen::SparseMatrix<float>>);
     m.def("sym_eigs_sparse_pybackend_float64", &eigs_pybackend<double, PythonSparseSymMatProd<double, Eigen::SparseMatrix<double>>, Eigen::SparseMatrix<double>>);
 
-    // m.def("partial_svd_float32", &partial_svd<float>);
-    // m.def("partial_svd_float64", &partial_svd<double>);
+    // SVD
+    m.def("partial_svd_float32", &partial_svd<float>);
+    m.def("partial_svd_float64", &partial_svd<double>);
+
+    m.def("partial_svd_pybackend_float32", &partial_svd_python<float>);
+    m.def("partial_svd_pybackend_float64", &partial_svd_python<double>);
 }
