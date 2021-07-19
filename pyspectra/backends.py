@@ -206,7 +206,7 @@ def _get_backend(backend, matrix_type, sparse_backends, dense_backends, class_) 
             _load_module(backend)
             if backend == "cupy" and matrix_type == "sparse":
                 _load_module("cupyx")
-            if backend == "jax" and matrix_type == "sparse":
+            if backend == "jax":
                 _load_module("jax")
                 _load_module("jax.numpy", "jnp")
 

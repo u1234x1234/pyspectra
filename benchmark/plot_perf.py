@@ -6,12 +6,15 @@ from uxils.plot.plotly_ext import show_figure, update_fig
 
 pallete = px.colors.qualitative.G10
 
-with open("measurements2.pkl", "rb") as in_file:
+with open("measurements_dense_16.pkl", "rb") as in_file:
     g_res = pickle.load(in_file)
 
 fig = go.Figure()
 
 for idx, (name, values) in enumerate(g_res.items()):
+    if "numpy" in name:
+        continue
+
     x = np.array(list(values.keys()))
     y = np.array(list(values.values())).mean(axis=1)
 
@@ -27,13 +30,14 @@ for idx, (name, values) in enumerate(g_res.items()):
         )
     )
 
-title = f"Finding {5} largest eigen[values]vectors of symmetric dense matrix"
+title = "Top-16 eigenvalues of a symmetric dense matrix"
 update_fig(
     fig,
-    xaxis_title="Size of matrix",
+    xaxis_title="Matrix size",
     yaxis_title="time, seconds",
-    legend_title="used method",
+    legend_title="Used method:",
     title=title,
     x_log=False,
+    font_size=30,
 )
 show_figure(fig)

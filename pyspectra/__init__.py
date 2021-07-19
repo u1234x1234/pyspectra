@@ -65,7 +65,7 @@ def eigsh(x, k, backend="eigen", maxiter=1000, ncv=None):
     return evalues, evectors
 
 
-def partial_svd(x, k, ncv=None, backend="eigen"):
+def truncated_svd(x, k, ncv=None, backend="eigen"):
     dtype_name, matrix_type_name = _detect_matrix_type(x)
 
     ncv = min(k * 2, len(x)) if ncv is None else ncv
@@ -75,7 +75,7 @@ def partial_svd(x, k, ncv=None, backend="eigen"):
         args = ()
     else:
         func_name = f"partial_svd_pybackend_{dtype_name}"
-        args = (get_svd_backend(backend),)
+        args = (get_svd_backend(backend, matrix_type_name),)
 
     f = spectra_ext.__dict__[func_name]
     r = f(x, k, ncv, *args)

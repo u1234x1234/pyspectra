@@ -20,7 +20,7 @@ def get_dense_sym(size):
     return x.dot(x.T)
 
 
-for mat_type, n_values in product(["dense", "sparse"], [16, 64]):
+for mat_type, n_values in product(["dense", "sparse"], [16]):
     g_res = defaultdict(dict)
 
     for mat_size in [100, 1_000, 2_000, 10_000, 20_000]:
@@ -66,4 +66,4 @@ for mat_type, n_values in product(["dense", "sparse"], [16, 64]):
             g_res[name][mat_size] = measurements
 
     with open(f"measurements_{mat_type}_{n_values}.pkl", "wb") as out_file:
-        pickle.dump((mat_type, n_values, g_res), out_file)
+        pickle.dump(g_res, out_file)

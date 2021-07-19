@@ -12,7 +12,7 @@
 #include <Spectra/MatOp/SparseSymMatProd.h>
 #include <Spectra/contrib/PartialSVDSolver.h>
 
-#include "svd.hpp"
+#include "svd.h"
 
 using namespace std;
 using namespace Spectra;
