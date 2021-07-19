@@ -6,7 +6,7 @@
 <img src="https://i.imgur.com/YxmIHcT.png" width="700">
 
 By default Spectra uses [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) library for computations, but exploiting its design it is possible to outsource linear algebra computations to any external library.
-`pyspectra` allows you to redefine matrix-vector operation using python code. For example you can utilize libraries with GPU support (such as numpy, PyTorch, TensorFlow, CuPy) which leads to large speedups.
+`pyspectra` allows you to redefine matrix-vector operation using python code. For example you can utilize libraries with GPU support (such as PyTorch, TensorFlow, CuPy) which leads to large speedups.
 
 ## Installation
 
@@ -22,9 +22,10 @@ import numpy as np
 
 X = np.random.uniform(size=(10_000, 1000))
 
-U, s, V = pyspectra.truncated_svd(X, 20)  # similar to scipy.sparse.linalg.svds
+U, s, V = pyspectra.truncated_svd(X, 20)  # similar to scipy.sparse.linalg.svds; Eigen
+U, s, V = pyspectra.truncated_svd(X, 20, backend="torch")  # GPU acceleration with PyTorch
 
-eigen_values, eigen_vectors = pyspectra.eigsh(X.T.dot(X), 20)  # Symmetric eigenvalue problem, scipy.sparse.linalg.eigsh
+eigenvalues, eigenvectors = pyspectra.eigsh(X.T.dot(X), 20)  # Symmetric eigenvalue problem, scipy.sparse.linalg.eigsh
 ```
 
 ## Implemented Spectra solvers
