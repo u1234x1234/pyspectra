@@ -110,10 +110,10 @@ Matrix ndarrayToMatrixX(pybind11::array_t<num_t, pybind11::array::c_style | pybi
 }
 
 template <typename Scalar, typename MatProd>
-std::tuple<EigenVector<Scalar>, EigenMatrix<Scalar>, int> eigsCompute(SymEigsSolver<MatProd> &eigs, size_t max_iter)
+std::tuple<EigenVector<Scalar>, EigenMatrix<Scalar>, int> eigsCompute(SymEigsSolver<MatProd> &eigs, size_t max_iter, SortRule sort_rule)
 {
     eigs.init();
-    eigs.compute(SortRule::LargestAlge, max_iter);
+    eigs.compute(sort_rule, max_iter);
 
     EigenVector<Scalar> evalues;
     EigenMatrix<Scalar> evectors;
@@ -128,19 +128,19 @@ std::tuple<EigenVector<Scalar>, EigenMatrix<Scalar>, int> eigsCompute(SymEigsSol
 }
 
 template <typename Scalar, typename MatProd, typename InMatrix = Eigen::Ref<const EigenMatrix<Scalar>>>
-std::tuple<EigenVector<Scalar>, EigenMatrix<Scalar>, int> eigs_eigen(InMatrix v, size_t nev, size_t ncv, size_t max_iter)
+std::tuple<EigenVector<Scalar>, EigenMatrix<Scalar>, int> eigs_eigen(InMatrix v, size_t nev, size_t ncv, size_t max_iter, SortRule sort_rule)
 {
     MatProd op(v);
     SymEigsSolver<MatProd> eigs(op, nev, ncv);
-    return eigsCompute<Scalar, MatProd>(eigs, max_iter);
+    return eigsCompute<Scalar, MatProd>(eigs, max_iter, sort_rule);
 }
 
 template <typename Scalar, typename MatProd, typename InMatrix = ndarray<Scalar>>
-std::tuple<EigenVector<Scalar>, EigenMatrix<Scalar>, int> eigs_pybackend(InMatrix v, size_t nev, size_t ncv, size_t max_iter, py::object backend)
+std::tuple<EigenVector<Scalar>, EigenMatrix<Scalar>, int> eigs_pybackend(InMatrix v, size_t nev, size_t ncv, size_t max_iter, py::object backend, SortRule sort_rule)
 {
     MatProd op(v, backend);
     SymEigsSolver<MatProd> eigs(op, nev, ncv);
-    return eigsCompute<Scalar, MatProd>(eigs, max_iter);
+    return eigsCompute<Scalar, MatProd>(eigs, max_iter, sort_rule);
 }
 
 template <typename Scalar, typename Vector = EigenVector<Scalar>, typename Matrix = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>>
@@ -169,6 +169,10 @@ std::tuple<Matrix, Vector, Matrix> partial_svd_python(Eigen::Ref<const Matrix> m
     return std::make_tuple(u, s, v);
 }
 
+int my_func(SortRule rule) {
+    return 123;
+}
+
 PYBIND11_MODULE(spectra_ext, m)
 {
     m.def("sym_eigs_dense_eigen_float32", &eigs_eigen<float, DenseSymMatProd<float>>);
@@ -190,4 +194,18 @@ PYBIND11_MODULE(spectra_ext, m)
 
     m.def("partial_svd_pybackend_float32", &partial_svd_python<float>);
     m.def("partial_svd_pybackend_float64", &partial_svd_python<double>);
+
+    // Enums
+    py::enum_<SortRule>(m, "SortRule", py::arithmetic())
+        .value("LargestMagn", SortRule::LargestMagn)
+        .value("LargestReal", SortRule::LargestReal)
+        .value("LargestImag", SortRule::LargestImag)
+        .value("LargestAlge", SortRule::LargestAlge)
+        .value("SmallestMagn", SortRule::SmallestMagn)
+        .value("SmallestReal", SortRule::SmallestReal)
+        .value("SmallestImag", SortRule::SmallestImag)
+        .value("SmallestAlge", SortRule::SmallestAlge)
+        .value("BothEnds", SortRule::BothEnds);
+
+    m.def("my_func", &my_func);
 }

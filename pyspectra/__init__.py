@@ -38,7 +38,7 @@ def _detect_matrix_type(x):
     return dtype_name, matrix_type_name
 
 
-def eigsh(x, k, backend="eigen", maxiter=1000, ncv=None):
+def eigsh(x, k, backend="eigen", maxiter=1000, ncv=None, which="LM"):
     "Find k eigenvalues and eigenvectors of the real symmetric square matrix"
     assert x.shape[0] == x.shape[1], "Square matrix expected"
 
@@ -53,9 +53,23 @@ def eigsh(x, k, backend="eigen", maxiter=1000, ncv=None):
         func_name = f"sym_eigs_{matrix_type_name}_pybackend_{dtype_name}"
         args = (get_backend(backend, matrix_type_name),)
 
-    f = spectra_ext.__dict__[func_name]
+    func = spectra_ext.__dict__[func_name]
     ncv = min(k * 2, len(x)) if ncv is None else ncv
-    evalues, evectors, status = f(x, k, ncv, maxiter, *args)
+
+    if which == "LM":
+        sort_rule = spectra_ext.SortRule.LargestMagn
+    elif which == "SM":
+        sort_rule = spectra_ext.SortRule.SmallestMagn
+    elif which == "LA":
+        sort_rule = spectra_ext.SortRule.LargestAlge
+    elif which == "SA":
+        sort_rule = spectra_ext.SortRule.SmallestAlge
+    elif which == "BE":
+        sort_rule = spectra_ext.SortRule.BothEnds
+    else:
+        raise ValueError(f"Unknown which option: {which}")
+
+    evalues, evectors, status = func(x, k, ncv, maxiter, *args, sort_rule)
 
     if status == 2:
         raise ValueError("NotConverging")

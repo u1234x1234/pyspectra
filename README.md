@@ -14,6 +14,13 @@ By default Spectra uses [Eigen](https://eigen.tuxfamily.org/index.php?title=Main
 pip install git+https://github.com/u1234x1234/pyspectra.git@0.0.1
 ```
 
+You need to have [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) library installed. (`fatal error: Eigen/Core: No such file or directory`)
+
+Installation using `apt`:
+```
+sudo apt install libeigen3-dev
+```
+
 ## Usage
 
 ```python
